@@ -1,0 +1,243 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>Bouncy Ball</title>
+
+<style>
+	:root { color-scheme: dark; }
+	html, body {
+		margin: 0;
+		height: 100%;
+		background: #0d1b2a;
+		overflow: hidden;
+		/* Touch is the only input, and the browser's own gestures are all
+		   unwanted: double-tap zoom eats fast repeat taps, and the overscroll
+		   bounce drags the whole game while the player is aiming. */
+		touch-action: none;
+		overscroll-behavior: none;
+		-webkit-user-select: none;
+		user-select: none;
+		-webkit-tap-highlight-color: transparent;
+	}
+	#application-canvas { display: block; width: 100%; height: 100%; outline: none; }
+
+</style>
+
+<script>
+/* ==========================================================================
+   PlayCanvas platform detection, inside the Minit app.
+
+   The app sets the WebView's ENTIRE User-Agent to the literal string
+   "games.minit.app" (DropWebView.config.ts). PlayCanvas derives its whole
+   platform model from that string:
+
+     platformName = /android/i ... /ip(?:[ao]d|hone)/i ... /mac os/i ...
+     browserName  = /Chrome\// ... /Safari\// ... /Firefox\// ... else "other"
+
+   Against "games.minit.app" nothing matches, so platform.name is null and
+   browserName is "other". On iOS that is not a cosmetic mislabel -- it is a
+   WebKit renderer with every WebKit workaround switched off:
+
+     const isSafari = platform.browserName === "safari";        // false
+     this._tempEnableSafariTextureUnitWorkaround = isSafari;    // skipped
+     this.supportsImageBitmap = !isSafari && ...                // true, and
+       ImageBitmap is exactly the texture path PlayCanvas avoids on WebKit
+
+   which is the documented "PlayCanvas games black-screen on iOS in the app".
+   Android is unaffected because "other" happens to be right for Chrome.
+
+   So the User-Agent is repaired before the engine module is evaluated --
+   platform is computed once, at module top level, so this has to be an inline
+   script ahead of the bundle. The app's own identifier is kept and the missing
+   OS/browser tokens are appended, so anything else reading the UA still sees
+   what the app sent.
+   ========================================================================== */
+(function () {
+	try {
+		var ua = navigator.userAgent || '';
+		// The same set PlayCanvas tests. If the UA names any OS, its detection
+		// works and nothing here should touch it.
+		if (/ip(?:[ao]d|hone)|android|windows|mac os|linux|cros/i.test(ua)) { return; }
+
+		// Which leaves: is this actually WebKit? Not from the UA -- it has been
+		// emptied -- but from things the UA cannot lie about. vendor is "Apple
+		// Computer, Inc." on every WebKit build, window.webkit.messageHandlers
+		// is the WKWebView script bridge, and a touch-capable Apple WebKit
+		// device is an iOS one.
+		var appleWebKit = /Apple/i.test(navigator.vendor || '') ||
+			!!(window.webkit && window.webkit.messageHandlers);
+		if (!appleWebKit || !((navigator.maxTouchPoints | 0) > 0)) { return; }
+
+		// Version 17_0 rather than a real reading, which is not available from
+		// anywhere. The one version-sensitive branch in the engine disables
+		// multisampling for iOS 15.4 specifically (ua.includes("15.4")), so
+		// claiming a modern version keeps antialiasing on. Swap this to 15_4 if
+		// you would rather have the conservative renderer everywhere.
+		var patched = ua + ' (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
+			'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+
+		try {
+			Object.defineProperty(navigator, 'userAgent',
+				{ get: function () { return patched; }, configurable: true });
+		} catch (e) {
+			// Some engines seal the instance property; the prototype still takes it.
+			Object.defineProperty(Navigator.prototype, 'userAgent',
+				{ get: function () { return patched; }, configurable: true });
+		}
+		console.log('[minit-platform] User-Agent repaired for PlayCanvas detection');
+	} catch (e) { }
+}());
+</script>
+
+<script>
+/* ==========================================================================
+   Minit app audio repair. Must run before the game bundle and before the app
+   sends anything, which is why it is inline here rather than imported.
+
+   Inside the Minit app every game's AudioContext is replaced by a subclass
+   whose `destination` is a mute gain the app owns, seeded at 0. The app then
+   states the real volume -- and two separate defects can stop that from
+   landing, each leaving the game perfectly healthy, mixing away, and silent.
+   Both are tracked in DROP-8164; both are repaired here, and both are inert
+   outside the app.
+
+     1. On iOS the game is served from minitlocal://, a custom scheme with an
+        opaque origin. The app posts the volume with
+        `window.postMessage(payload, window.location.origin)`, and for an
+        opaque origin that argument is the string "null" -- which postMessage
+        does not ignore, it THROWS. Every volume message is lost. Retrying the
+        same-window post with '*' delivers the app's own message, so its real
+        intent still decides the volume.
+
+     2. The app states the volume once, when the document loads. A game whose
+        AudioContext appears later than that -- any large wasm build -- is
+        constructed into a 0 nobody ever chose, and nothing restates it until
+        the next foreground transition. Hence "no sound until I background the
+        app and come back".
+
+   The second one is why this tracks whether the app ever spoke at all. From
+   in here a deliberate mute and a silence nobody asked for look identical:
+   both are a mute gain at 0. An explicit 0 is honoured untouched. A 0 we were
+   simply never addressed about is repaired -- and only after a real gesture,
+   so the player has demonstrably asked for the game.
+   ========================================================================== */
+(function () {
+	/* --- 1. the opaque-origin postMessage --- */
+	var nativePost = window.postMessage.bind(window);
+	window.postMessage = function (message, targetOrigin, transfer) {
+		try {
+			return nativePost(message, targetOrigin, transfer);
+		} catch (err) {
+			if (!err || err.name !== 'SyntaxError' || targetOrigin === '*') { throw err; }
+			console.log('[minit-audio] postMessage origin ' + String(targetOrigin) +
+				' rejected; retrying same-window with "*"');
+			return nativePost(message, '*', transfer);
+		}
+	};
+
+	/* --- a registry, so the repair can find whatever the game created --- */
+	var contexts = [];
+	window.__minitAudioContexts = contexts;
+	var Native = window.AudioContext || window.webkitAudioContext;
+	if (Native) {
+		var wrap = function () {
+			// In the app this wraps the app's own subclass, so the instances
+			// recorded carry _muteGain and fadeVolume.
+			var ctx = new Native(...arguments);
+			contexts.push(ctx);
+			return ctx;
+		};
+		wrap.prototype = Native.prototype;
+		window.AudioContext = wrap;
+		window.webkitAudioContext = wrap;
+	}
+
+	/* --- 2. did the app ever state a volume at all? --- */
+	var hostSpoke = false, gestured = false;
+	window.addEventListener('message', function (e) {
+		var d = e && e.data;
+		if (d && typeof d === 'object' && /^minit\.(fade|set)DropAudioVolume$/.test(d.type)) {
+			hostSpoke = true;
+			console.log('[minit-audio] host set volume ' + d.value +
+				' at ' + Math.round(performance.now()) + 'ms');
+		}
+	}, true);
+
+	var lastLine = '';
+	function report(why) {
+		try {
+			var c = contexts[0];
+			var line = (c ? c.state : 'no-context')
+				+ '|gain=' + (c && c._muteGain ? c._muteGain.gain.value.toFixed(2) : 'n/a')
+				+ '|hostVol=' + (window.dropAudioVolume === undefined ? 'unset' : window.dropAudioVolume)
+				+ '|host=' + (hostSpoke ? 'spoke' : 'silent')
+				+ '|gestured=' + (gestured ? 'yes' : 'no')
+				+ '|n=' + contexts.length;
+			if (line === lastLine) { return; }
+			lastLine = line;
+			console.log('[minit-audio] ' + line + ' (' + why + ')');
+		} catch (e) { }
+	}
+
+	var stuckSince = 0;
+	function repairGain(why) {
+		for (var ci = 0; ci < contexts.length; ci++) { repairOne(contexts[ci], why); }
+	}
+
+	function repairOne(c, why) {
+		try {
+			if (!c || !c._muteGain || !c._muteGain.gain) { stuckSince = 0; return; }
+			var target = window.dropAudioVolume;
+			if (typeof target !== 'number') { stuckSince = 0; return; }
+			if (target <= 0) {
+				// App said 0: a real mute, honoured. App said nothing: nothing
+				// to honour, so come up to full once the player has tapped.
+				if (hostSpoke || !gestured || c.state !== 'running') { stuckSince = 0; return; }
+				target = 1;
+			}
+			if (c._muteGain.gain.value > 0.001) { stuckSince = 0; return; }
+			// The app legitimately holds the gain at 0 for a prime window and
+			// then ramps, so only act once it has plainly not arrived.
+			var now = Date.now();
+			if (!stuckSince) { stuckSince = now; return; }
+			if (now - stuckSince < 1500) { return; }
+			stuckSince = now;
+			if (typeof c.fadeVolume === 'function') {
+				c.fadeVolume(target, 0.3);
+				console.log('[minit-audio] ' + (hostSpoke ? 're-applied app volume '
+					: 'app never set a volume; restoring ') + target + ' (' + why + ')');
+			}
+		} catch (e) { }
+	}
+
+	function resume(why) {
+		for (var i = 0; i < contexts.length; i++) {
+			try {
+				var c = contexts[i];
+				if (c && c.state !== 'running' && typeof c.resume === 'function') { c.resume(); }
+			} catch (e) { }
+		}
+		repairGain(why);
+		report(why);
+	}
+
+	['touchstart', 'touchend', 'pointerdown', 'mousedown', 'click'].forEach(function (evt) {
+		// Capture phase, so this runs even if something stops propagation
+		// before the canvas sees the gesture.
+		document.addEventListener(evt, function () { gestured = true; resume(evt); },
+			{ capture: true, passive: true });
+	});
+	document.addEventListener('visibilitychange', function () { if (!document.hidden) { resume('visible'); } });
+	window.addEventListener('pageshow', function () { resume('pageshow'); });
+
+	// Backing-off watchdog: often early on, rarely later.
+	var tries = 0;
+	(function tick() {
+		tries++;
+		resume('watchdog');
+		setTimeout(tick, tries < 20 ? 500 : (tries < 40 ? 2000 : 10000));
+	})();
+}());
+</script>
+
+<canvas id="application-canvas"></canvas>
+<script type="module" src="/src/main.js"></script>

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://raw.githubusercontent.com/Minit-Games/minit-sdk/master/schemas/meta.schema.json",
+  "schemaVersion": 1,
+  "title": "PlayCanvas Bouncy Ball 🏐🌱",
+  "controls": "- **Tap the ball** to bounce it — every tap scores\n- **Hit it again in mid-air** to keep a rally going\n- **Beat the clock** — you have 30 seconds",
+  "logic": "- Each tap is worth the post's **points per tap**, so a modded post can be worth more per bounce\n- Taps land in a **rally** until the ball touches the grass — letting it drop resets the count\n- The run ends itself after **30 seconds**, and your best rally is what gets remembered",
+  "description": "## What's This? 🏐\n\nA ball on the grass, in 3D. Tap it, it bounces, you score. Keep hitting it in mid-air to build a rally, before the 30 second clock runs out.\n\n## Scoring ⭐\n\n- Every tap is worth the post's **points per tap** (10 by default)\n- Consecutive mid-air hits build a **rally** — let the ball land and it starts over 🔄\n- Your longest rally is what shows up next to your score 🏆\n\n## Tips 💡\n\n- The ball hangs for a moment at the top of its arc — that is the easy hit 🎯\n- Hitting it off-centre pushes it sideways, so you can steer it back to the middle ↔️\n- A gentle rhythm beats frantic tapping; let it come to you 🥁",
+  "resultSorting": "highestScore",
+  "license": "proprietary",
+  "credits": "Music: \"Title Screen\" from 5 Chiptunes (Action) by Juhani Junkala (SubspaceAudio), released under CC0. Built with the PlayCanvas engine (MIT). UI fonts Lato and Bowlby One SC ship with the Minit SDK under the SIL Open Font License 1.1.",
+  "sourceUrl": "https://opengameart.org/content/5-chiptunes-action",
+  "config": [
+    {
+      "key": "pointsPerTap",
+      "valueType": "number",
+      "value": "10",
+      "min": 1,
+      "max": 100,
+      "moddable": true,
+      "description": "Points awarded for each tap on the ball."
+    },
+    {
+      "key": "sound",
+      "valueType": "boolean",
+      "value": "true",
+      "moddable": true,
+      "description": "Sound effects. The background music has its own toggle."
+    },
+    {
+      "key": "music",
+      "valueType": "boolean",
+      "value": "true",
+      "moddable": true,
+      "description": "Background music loop."
+    }
+  ]
+}

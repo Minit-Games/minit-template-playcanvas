@@ -1,0 +1,22 @@
+{
+  "name": "playcanvas-minit",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "PlayCanvas starter template for Minit Games",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node tools/check-meta.mjs",
+    "preview": "vite preview",
+    "package": "bash tools/package.sh",
+    "verify:audio": "node tools/verify-audio.mjs",
+    "gen:music": "node tools/gen-music.mjs"
+  },
+  "dependencies": {
+    "@minit-games/sdk": "^1.10.0",
+    "playcanvas": "^2.0.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  }
+}

@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# The CC0 source pack tools/gen-music.mjs downloads (~47 MB). Regenerated on
+# demand; src/assets/music.js is the committed output.
+.cache/
+.DS_Store
