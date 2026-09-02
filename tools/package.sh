@@ -8,7 +8,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-NAME="playcanvas-minit-template"
+NAME="minit-template-playcanvas"
 OUT="dist/${NAME}.zip"
 
 echo "==> building"

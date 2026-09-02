@@ -28,6 +28,12 @@ import { tmpdir } from 'node:os';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = 9871;
 
+// Which directory holds the built game. Every bundler template writes dist/,
+// but the engines do not: Godot exports to dist/web, Unity to Build/MinitWebGL,
+// and Defold to a folder named after the project title -- spaces and all. Pass
+// it as the first argument.
+const BUILT = process.argv[2] || 'dist';
+
 const PROBE = `
 window.__peak = 0;
 window.__installAnalyser = function () {
@@ -54,7 +60,7 @@ window.__installAnalyser = function () {
 
 async function stage(initialVolume) {
 	const dir = await mkdtemp(join(tmpdir(), 'minit-audio-'));
-	await cp(join(ROOT, 'dist'), dir, { recursive: true });
+	await cp(join(ROOT, BUILT), dir, { recursive: true });
 	const host = await readFile(join(ROOT, 'tools/fake-host-audio.js'), 'utf8');
 	const p = join(dir, 'index.html');
 	const html = await readFile(p, 'utf8');
@@ -80,9 +86,17 @@ async function measure({ mutes }) {
 		}
 		await b.eval('window.__installAnalyser(); window.__peak = 0;');
 		const { width, height } = { width: 390, height: 844 };
-		for (let i = 0; i < 6; i++) {
-			await b.tap([{ x: width / 2, y: Math.round(height * 0.62) - 40 }], 60);
-			await new Promise((r) => setTimeout(r, 700));
+		// Sweep down the middle instead of aiming at one guessed point. Where
+		// the ball rests differs per engine -- and Defold's y axis runs the
+		// other way -- so a single coordinate that happens to hit one template
+		// silently misses in another, and a miss here reads as "no audio"
+		// rather than "bad tap".
+		const column = [0.40, 0.48, 0.54, 0.58, 0.62, 0.70].map((f) => Math.round(height * f));
+		for (let round = 0; round < 2; round++) {
+			for (const y of column) {
+				await b.tap([{ x: width / 2, y }], 60);
+				await new Promise((r) => setTimeout(r, 260));
+			}
 		}
 		return await b.eval('window.__peak');
 	} finally {

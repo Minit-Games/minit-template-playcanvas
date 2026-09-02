@@ -61,9 +61,16 @@ const bundle = html + '\n' + js;
 // Failing on that would make every engine-based game unshippable while proving
 // nothing: what matters is whether a request is actually made, which
 // tools/verify-offline.mjs measures at runtime instead.
-const firstParty = (await Promise.all(
+// Comments are stripped first. Without that, a source file DOCUMENTING that
+// fetch and XMLHttpRequest are forbidden trips the very check it is explaining
+// -- which is exactly what happened here.
+const stripComments = (src) => src
+	.replace(/\/\*[\s\S]*?\*\//g, '')       // block comments
+	.replace(/^[ \t]*\/\/.*$/gm, '');        // whole-line // comments
+
+const firstParty = stripComments((await Promise.all(
 	(await walk(join(ROOT, 'src'))).filter((f) => f.endsWith('.js')).map((f) => readFile(f, 'utf8'))
-)).join('\n');
+)).join('\n'));
 
 for (const [name, re] of [
 	['localStorage', /\blocalStorage\b/],
@@ -75,12 +82,15 @@ for (const [name, re] of [
 	else if (re.test(bundle)) { note(`${name} appears in bundled dependency code (not in src/); tools/verify-offline.mjs checks no request is actually made.`); }
 }
 
-const external = [...bundle.matchAll(/https?:\/\/[^\s"'`)]+/g)]
+// Also first-party only, and for the same reason: an engine bundle is full of
+// URLs it never requests -- Pixi prints its own homepage in a console banner,
+// libraries carry licence headers and doc links in error messages. What
+// matters is whether a request is made, which verify-offline.mjs measures.
+const external = [...firstParty.matchAll(/https?:\/\/[^\s"'`)]+/g)]
 	.map((m) => m[0])
-	// A URL inside a comment or a license string is documentation, not a request.
 	.filter((u) => !/w3\.org|creativecommons|opengameart|github\.com|minit\.(studio|games)|fonts\.google/.test(u));
 if (external.length) {
-	fail(`bundle contains external URLs, which cannot load in the app: ${[...new Set(external)].slice(0, 4).join(', ')}`);
+	fail(`src/ contains external URLs, which cannot load in the app: ${[...new Set(external)].slice(0, 4).join(', ')}`);
 }
 if (/<link[^>]+fonts\.googleapis/.test(html)) {
 	fail('index.html links Google Fonts; bundle woff2 files instead -- external requests fail silently in the app.');

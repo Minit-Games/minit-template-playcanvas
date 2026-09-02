@@ -1,4 +1,4 @@
-# playcanvas-minit
+# minit-template-playcanvas
 
 > **Learn page:** [PlayCanvas on Minit](https://minit.studio/docs/playcanvas) — the official guide this template implements.
 
@@ -15,10 +15,10 @@ what happens either side of a run, so the game never asks the player to end it.
 ```bash
 npm install
 npm run dev        # local dev server
-npm run package    # build, verify, and write dist/playcanvas-minit-template.zip
+npm run package    # build, verify, and write dist/minit-template-playcanvas.zip
 ```
 
-Upload `dist/playcanvas-minit-template.zip` at
+Upload `dist/minit-template-playcanvas.zip` at
 [console.minit.games](https://console.minit.games).
 
 ## Layout
