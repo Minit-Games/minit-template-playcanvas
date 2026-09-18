@@ -24,9 +24,10 @@ const ORIGIN = `http://localhost:${PORT}`;
 const server = spawn('node', [join(ROOT, 'tools/serve.mjs'), join(ROOT, 'dist'), String(PORT)], { stdio: 'ignore' });
 await new Promise((r) => setTimeout(r, 500));
 
-const b = await launch({ width: 420, height: 630, dpr: 1, autoplay: false });
+let b;
 const requests = [];
 try {
+	b = await launch({ width: 420, height: 630, dpr: 1, autoplay: false });
 	await b.page.send('Network.enable');
 	b.page.on('Network.requestWillBeSent', (p) => requests.push(p.request.url));
 
@@ -41,7 +42,7 @@ try {
 	}
 	await new Promise((r) => setTimeout(r, 1500));
 } finally {
-	await b.close();
+	if (b) { await b.close(); }
 	server.kill();
 }
 

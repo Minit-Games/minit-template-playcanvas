@@ -1,16 +1,56 @@
 // Minimal Chrome DevTools Protocol driver. Node 22 ships a global WebSocket, so
 // this needs no packages at all -- which matters because the game repo should
 // not grow a node_modules just to be verified.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const CHROME = process.env.CHROME
-  || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+const WIN = process.platform === 'win32';
+
+// Any Chromium speaks the DevTools protocol, so this does not need Chrome
+// specifically. That matters on Windows, where Edge is always present and
+// Chrome frequently is not -- the audio gate is the one check that cannot be
+// skipped, so it must not depend on a browser the creator may never install.
+//
+// Opera is deliberately absent. It is Chromium, but several builds refuse
+// remote debugging and then fail indistinguishably from a missing browser.
+// Do not add it.
+const CANDIDATES = {
+  darwin: [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  ],
+  win32: [
+    `${process.env.PROGRAMFILES}\\Google\\Chrome\\Application\\chrome.exe`,
+    `${process.env['PROGRAMFILES(X86)']}\\Google\\Chrome\\Application\\chrome.exe`,
+    `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+    `${process.env.PROGRAMFILES}\\Microsoft\\Edge\\Application\\msedge.exe`,
+    `${process.env['PROGRAMFILES(X86)']}\\Microsoft\\Edge\\Application\\msedge.exe`,
+  ],
+  linux: [
+    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/usr/bin/microsoft-edge',
+  ],
+};
+
+// Resolved per call rather than at import, so merely importing this module
+// cannot throw on a machine with no browser -- only actually using it does.
+function resolveBrowser() {
+  if (process.env.CHROME) return process.env.CHROME;
+  const tried = CANDIDATES[process.platform] || CANDIDATES.linux;
+  for (const p of tried) { if (existsSync(p)) return p; }
+  throw new Error(
+    'No Chromium-based browser found. Install Chrome or Edge, or set CHROME to one.\nTried:\n  '
+    + tried.join('\n  '));
+}
 
 export async function launch({ width = 390, height = 844, dpr = 3, headless = true,
                               autoplay = true } = {}) {
+  const CHROME = resolveBrowser();
   const profile = await mkdtemp(join(tmpdir(), 'molecdp-'));
   const args = [
     '--remote-debugging-port=0', `--user-data-dir=${profile}`,
@@ -29,17 +69,28 @@ export async function launch({ width = 390, height = 844, dpr = 3, headless = tr
   // leaves them running. Its own process group lets us reap the whole tree --
   // without this a timed-out run leaks a dozen processes that then thrash the
   // machine and make every later run slower, until nothing completes at all.
-  const proc = spawn(CHROME, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  // Windows has no process groups to detach into (the flag would just open a
+  // console window there), so killTree uses taskkill /T instead.
+  const proc = spawn(CHROME, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: !WIN });
 
   const wsUrl = await new Promise((resolve, reject) => {
     let buf = '';
-    const to = setTimeout(() => reject(new Error('chrome did not report a debug port')), 30000);
+    const to = setTimeout(() => reject(new Error(`${CHROME} did not report a debug port`)), 30000);
     proc.stderr.on('data', (d) => {
       buf += d;
       const m = buf.match(/ws:\/\/[^\s]+/);
       if (m) { clearTimeout(to); resolve(m[0]); }
     });
     proc.on('exit', (c) => { clearTimeout(to); reject(new Error(`chrome exited ${c}: ${buf}`)); });
+    // spawn failure emits 'error' and never 'exit'. Left unhandled that is an
+    // uncaught exception, which bypasses the caller's try/finally and strands
+    // whatever it had already started -- measurably, the staged dev server,
+    // still holding its port so the next run fails on something unrelated.
+    // Rejecting turns it into an ordinary failure that names the binary.
+    proc.on('error', (e) => {
+      clearTimeout(to);
+      reject(new Error(`could not start ${CHROME}: ${e.message}`));
+    });
   });
 
   // A timed-out or interrupted script never reaches its finally block, so bind
@@ -128,6 +179,13 @@ export async function launch({ width = 390, height = 844, dpr = 3, headless = tr
 
 /** Kill the browser and every child it spawned. */
 function killTree(proc) {
+  // Negative-PID signalling is POSIX-only. On Windows it throws, and killing
+  // just the parent leaves Chrome's renderer and GPU children running -- the
+  // exact leak the detached process group prevents everywhere else.
+  if (WIN) {
+    try { spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' }); } catch { }
+    return;
+  }
   try { process.kill(-proc.pid, 'SIGKILL'); } catch { }
   try { proc.kill('SIGKILL'); } catch { }
 }

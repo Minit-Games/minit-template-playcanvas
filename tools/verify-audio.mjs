@@ -74,8 +74,9 @@ async function measure({ mutes }) {
 	const dir = await stage(0);
 	const server = spawn('node', [join(ROOT, 'tools/serve.mjs'), dir, String(PORT)], { stdio: 'ignore' });
 	await new Promise((r) => setTimeout(r, 500));
-	const b = await launch({ width: 390, height: 844, dpr: 1, autoplay: false });
+	let b;
 	try {
+		b = await launch({ width: 390, height: 844, dpr: 1, autoplay: false });
 		await b.goto(`http://localhost:${PORT}/`);
 		await new Promise((r) => setTimeout(r, 2500));
 		if (mutes) {
@@ -100,7 +101,7 @@ async function measure({ mutes }) {
 		}
 		return await b.eval('window.__peak');
 	} finally {
-		await b.close();
+		if (b) { await b.close(); }
 		server.kill();
 	}
 }

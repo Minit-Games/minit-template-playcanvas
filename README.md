@@ -21,6 +21,48 @@ npm run package    # build, verify, and write dist/minit-template-playcanvas.zip
 Upload `dist/minit-template-playcanvas.zip` at
 [console.minit.games](https://console.minit.games).
 
+## Tools and configuration
+
+Everything in `tools/` needs **Node 22 or newer** and a Chromium-based browser.
+There is nothing else to install — the scripts use only Node built-ins.
+
+**The browser.** The audio gate drives a real browser over the DevTools
+protocol, so it needs one present. It takes the first that exists on disk, which
+on most machines means there is nothing to configure:
+
+| OS | Tried, in order |
+|---|---|
+| macOS | Google Chrome, Microsoft Edge, Chromium |
+| Windows | Google Chrome, Microsoft Edge *(Edge ships with Windows)* |
+| Linux | `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser`, `microsoft-edge` |
+
+Set `CHROME` to override it with any Chromium build. On macOS and Linux:
+
+```bash
+CHROME="/path/to/chrome" npm run package
+```
+
+and on Windows, from `cmd`:
+
+```
+set CHROME=C:\path\to\msedge.exe
+npm run package
+```
+
+If none is found the run stops immediately and lists every path it tried.
+Opera is deliberately *not* tried: it is Chromium, but several builds refuse
+remote debugging and then fail exactly like a missing browser.
+
+### On Windows, use `cmd` rather than PowerShell
+
+PowerShell's execution policy blocks `npm.ps1`, so any `npm run …` fails with
+*"running scripts is disabled on this system"* before this template runs at all.
+That is a Windows security setting rather than anything here, and you do not
+need to weaken it — use `cmd`, or call Node directly:
+
+```
+node tools/package.mjs
+```
 ## Layout
 
 ```

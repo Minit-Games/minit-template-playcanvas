@@ -8,9 +8,10 @@
     "dev": "vite",
     "build": "vite build && node tools/check-meta.mjs",
     "preview": "vite preview",
-    "package": "bash tools/package.sh",
+    "package": "node tools/package.mjs",
     "verify:audio": "node tools/verify-audio.mjs",
-    "gen:music": "node tools/gen-music.mjs"
+    "gen:music": "node tools/gen-music.mjs",
+    "verify:offline": "node tools/verify-offline.mjs"
   },
   "dependencies": {
     "@minit-games/sdk": "^1.10.0",
