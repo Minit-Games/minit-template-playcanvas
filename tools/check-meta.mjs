@@ -9,7 +9,7 @@
 // advisory and do not fail the build.
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'node:path';
+import { dirname, join, posix, relative, sep } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(ROOT, 'dist');
@@ -44,6 +44,60 @@ for (const bad of ['package.json', 'vite.config.js', 'vite.config.ts']) {
 	if (rel.includes(bad)) { fail(`dist/ contains ${bad}; the console rejects uploads that look unbuilt.`); }
 }
 if (rel.some((f) => f.startsWith('src/'))) { fail('dist/ contains a src/ folder; the console rejects that.'); }
+
+/* ---- every local reference must resolve inside dist/ -------------------
+   The staged file list is an allowlist, so a root-level asset a game adds --
+   a stylesheet, a font sheet, a data file -- is dropped silently: the archive
+   is valid, every other check here passes, and the page renders unstyled. The
+   template's own demo never trips it because it keeps its styles inline.
+   Resolve what the page actually asks for rather than trusting the list, so
+   stylesheets, scripts, fonts and data files are all caught as one class. */
+const present = new Set(rel.map((f) => f.split(sep).join('/')));
+
+// Anything with a scheme, or inlined, is somebody else's problem -- external
+// URLs are already failed above.
+const isLocal = (u) => u && !/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(u);
+
+function referencesIn(text) {
+	const out = [];
+	for (const m of text.matchAll(/(?:href|src)\s*=\s*["']([^"']*)["']/gi)) { out.push(m[1]); }
+	// Fonts and background images usually arrive this way, not as attributes.
+	for (const m of text.matchAll(/url\(\s*["']?([^"')]+)["']?\s*\)/gi)) { out.push(m[1]); }
+	return out;
+}
+
+// index.html plus every stylesheet that made it in: a staged CSS file naming a
+// font that did not is the same defect one level down.
+const referrers = ['index.html', ...present].filter(
+	(f, i, a) => a.indexOf(f) === i && (f === 'index.html' || f.endsWith('.css')));
+
+// Keyed by referrer AND reference, so the same missing name in two files is
+// reported against each of them rather than collapsing to the first.
+const missing = new Map();
+for (const from of referrers) {
+	const text = await readFile(join(DIST, from), 'utf8').catch(() => null);
+	if (text === null) { continue; }
+	for (const raw of referencesIn(text)) {
+		if (!isLocal(raw)) { continue; }
+		// Strip the query and fragment a cache-buster or a font fragment adds.
+		// A malformed escape is the author's, not ours -- take it literally.
+		const stripped = raw.split(/[?#]/)[0];
+		let clean;
+		try { clean = decodeURIComponent(stripped).trim(); } catch { clean = stripped.trim(); }
+		if (!clean) { continue; }
+		const target = clean.startsWith('/')
+			? posix.normalize(clean.slice(1))
+			: posix.normalize(posix.join(posix.dirname(from), clean));
+		// A reference climbing out of dist/ can never ship.
+		if (target.startsWith('..')) { missing.set(`${from}|${raw}`, [from, raw]); continue; }
+		if (!present.has(target) && !present.has(target + '/index.html')) { missing.set(`${from}|${raw}`, [from, raw]); }
+	}
+}
+
+for (const [, [from, raw]] of missing) {
+	fail(`${from} references "${raw}", which is not in dist/. `
+		+ 'Put it in public/ so the build copies it -- the bundle would ship without it.');
+}
 
 /* ---- forbidden APIs and external references ---------------------------
    The game WebView is sandboxed with no network, and the platform's own sweep
