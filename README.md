@@ -66,7 +66,7 @@ node tools/package.mjs
 ## Layout
 
 ```
-index.html            page shell + two repairs (User-Agent, audio) — read the comments
+index.html            page shell + the audio repair — read the comments
 src/main.js           SDK lifecycle, scoring, HUD — the part worth copying
 src/scene.js          the 3D scene: camera, light, ground, ball, physics
 src/audio.js          one AudioContext: the music loop and synthesised effects
@@ -104,56 +104,6 @@ including `"false"` — coerce every one.
 ```
 http://localhost:5173/?pointsPerTap=25&music=false
 ```
-
-## PlayCanvas on iOS, and the User-Agent
-
-The platform docs carry a warning:
-
-> PlayCanvas games currently black-screen on iOS inside the Minit app: the
-> WebView's custom User-Agent breaks PlayCanvas's iOS-version detection.
-
-Here is the mechanism, and the repair this template ships at the top of
-`index.html`.
-
-The app sets the WebView's **entire** User-Agent to the literal string
-`"games.minit.app"` (`DropWebView.config.ts`). PlayCanvas derives its whole
-platform model from that string:
-
-```js
-platformName = /android/i.test(ua) ? 'android' : /ip(?:[ao]d|hone)/i.test(ua) ? 'ios' : ...
-browserName  = /Chrome\//.test(ua) ? 'chrome' : /Safari\//.test(ua) ? 'safari' : ... 'other'
-```
-
-Nothing matches, so `platform.name` is `null` and `browserName` is `'other'`.
-On iOS that is not a cosmetic mislabel — it is a WebKit renderer with every
-WebKit workaround switched off:
-
-```js
-const isSafari = platform.browserName === 'safari';          // false in the app
-this._tempEnableSafariTextureUnitWorkaround = isSafari;      // skipped
-this.supportsImageBitmap = !isSafari && typeof ImageBitmap !== 'undefined';
-// → true, and ImageBitmap is exactly the texture path PlayCanvas avoids on WebKit
-```
-
-Android is unaffected because `'other'` happens to be right for Chrome, which
-matches the docs saying Android is fine.
-
-The shim restores the missing tokens before the engine module is evaluated
-(`platform` is computed once, at module top level, so it must be an inline
-script ahead of the bundle). It only acts when the UA names no OS at all, and
-only when the environment is verifiably Apple WebKit by means the UA cannot
-lie about — `navigator.vendor`, the `window.webkit.messageHandlers` bridge, and
-touch support. Measured against the app's real User-Agent:
-
-| | `platform.name` | `ios` | `mobile` | `browserName` |
-| --- | --- | --- | --- | --- |
-| without the shim | `null` | `false` | `false` | `"other"` |
-| with the shim | `"ios"` | `true` | `true` | `"safari"` |
-
-**What this does and does not prove.** It fixes the detection, which is the
-documented cause. It is verified in Chromium under the app's exact
-User-Agent — a real WebKit device is the only place the black screen itself can
-be confirmed gone. Test on a device before shipping to iOS players.
 
 ## Audio
 
