@@ -14,7 +14,7 @@
     "verify:offline": "node tools/verify-offline.mjs"
   },
   "dependencies": {
-    "@minit-games/sdk": "^1.10.0",
+    "@minit-games/sdk": "^1.19.0",
     "playcanvas": "^2.0.0"
   },
   "devDependencies": {
