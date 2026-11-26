@@ -19,7 +19,7 @@ npm run package    # build, verify, and write dist/minit-template-playcanvas.zip
 ```
 
 Upload `dist/minit-template-playcanvas.zip` at
-[console.minit.games](https://console.minit.games).
+[minit.studio](https://minit.studio).
 
 ## Tools and configuration
 

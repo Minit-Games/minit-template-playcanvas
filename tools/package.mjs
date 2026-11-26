@@ -1,4 +1,4 @@
-// Build, verify, and produce the ZIP to upload at https://console.minit.games
+// Build, verify, and produce the ZIP to upload at https://minit.studio
 //
 //   npm run package
 //
@@ -70,4 +70,4 @@ console.log(`\nwrote ${OUT} (${kb(bytes)})`);
 for (const n of names) {
 	console.log(`  ${String((await stat(join(ROOT, 'dist', n))).size).padStart(9)}  ${n}`);
 }
-console.log(`\nUpload ${OUT} at https://console.minit.games`);
+console.log(`\nUpload ${OUT} at https://minit.studio`);
